@@ -1,0 +1,10 @@
+const games={mega:['Mega 6/45','#e53935'],power:['Power 6/55','#f6a800'],lotto:['Lotto 5/35','#18a957'],max3dpro:['Max3D Pro','#00a3c7'],max3d:['Max 3D','#1967d2']};
+let current='mega', data={};
+const $=s=>document.querySelector(s);
+function tabs(){ $('#tabs').innerHTML=Object.entries(games).map(([k,v])=>`<button class="tab ${k===current?'active':''}" data-k="${k}">${v[0]}</button>`).join(''); document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{current=b.dataset.k;tabs();render();}); }
+function render(){ const r=data[current]||{}; $('#gameName').textContent=games[current][0]; $('#meta').textContent=r.error?`Lỗi: ${r.error}`:(r.period?`Kỳ #${r.period}${r.date?' • '+r.date:''}`:'Đang lấy dữ liệu…'); const nums=r.numbers||[]; $('#balls').innerHTML=nums.length?nums.map((n,i)=>`<div class="ball" style="background:${games[current][1]}">${n}</div>`).join(''):'<span class="muted">Chưa có bộ số</span>'; $('#jackpots').innerHTML=(r.jackpots||[]).map(j=>`<div class="jp">${j.label}: ${j.value} đ</div>`).join(''); $('#status').innerHTML=r.updatedAt?`<span class="muted">Cập nhật: ${new Date(r.updatedAt).toLocaleString('vi-VN')}</span>`:''; }
+async function load(){ const j=await fetch('/api/results').then(r=>r.json());data=j.results||{};render(); }
+$('#refresh').onclick=async()=>{ $('#refresh').disabled=true; const j=await fetch('/api/results/'+current).then(r=>r.json()); if(j.result)data[current]=j.result;render();$('#refresh').disabled=false; };
+$('#checkBtn').onclick=()=>{ const win=(data[current]?.numbers||[]).map(Number); const input=($('#ticket').value.match(/\d{1,2}/g)||[]).map(Number); if(!input.length)return $('#checkResult').textContent='Bạn chưa nhập số.'; const matched=input.filter(n=>win.includes(n)); $('#checkResult').innerHTML=`Trùng <b>${matched.length}</b> số${matched.length?': '+matched.map(n=>String(n).padStart(2,'0')).join(', '):'.'}`; };
+const socket=io(); socket.on('init',x=>{data=x.results||{};render()}); socket.on('result:update',r=>{data[r.game]=r;if(r.game===current)render()});
+tabs();load();

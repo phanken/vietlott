@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: vietlott-realtime
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: ADMIN_KEY
+        generateValue: true
+      - key: MONGODB_URI
+        sync: false
+      - key: REFRESH_MS
+        value: 30000
