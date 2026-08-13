@@ -1,7 +1,34 @@
-<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vietlott Realtime</title><link rel="stylesheet" href="/style.css"></head><body>
-<header><div><b>VIETLOTT REALTIME</b><small>Kết quả cập nhật tự động</small></div><span id="live">● LIVE</span></header>
-<nav id="tabs"></nav>
-<main><section class="card"><div class="title"><div><h1 id="gameName">Mega 6/45</h1><p id="meta">Đang tải…</p></div><button id="refresh">↻ Cập nhật</button></div><div id="balls" class="balls"></div><div id="jackpots"></div><div id="status"></div></section>
-<section class="card"><h2>Dò vé nhanh</h2><p class="muted">Nhập các số trên vé, cách nhau bằng dấu cách.</p><div class="check"><input id="ticket" placeholder="VD: 01 05 12 23 34 45"><button id="checkBtn">Dò vé</button></div><div id="checkResult"></div></section>
-</main><footer>Nguồn dữ liệu công khai • Kết quả chỉ mang tính tham khảo</footer>
-<script src="/socket.io/socket.io.js"></script><script src="/app.js"></script></body></html>
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Vietlott Realtime</title><meta name="theme-color" content="#087a42">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><div class="logo">V</div><div><b>VIETLOTT REALTIME</b><small>Kết quả • Lịch sử • Dò vé</small></div></div><span id="live" class="live">● LIVE</span></header>
+<nav class="mainnav"><button data-view="results" class="navitem active">Kết quả</button><button data-view="history" class="navitem">Lịch sử</button><button data-view="tickets" class="navitem">Vé đã lưu</button><button data-view="telegram" class="navitem">Telegram</button></nav>
+<div id="gameTabs" class="gametabs"></div>
+
+<main>
+  <section id="view-results" class="view active">
+    <article class="hero card">
+      <div class="herohead"><div><div class="eyebrow" id="gameType">KẾT QUẢ MỚI NHẤT</div><h1 id="gameName">Mega 6/45</h1><p id="meta">Đang tải…</p></div><button id="refresh" class="primary">↻ Cập nhật</button></div>
+      <div id="balls" class="balls"></div><div id="prizes" class="prizes"></div><div id="jackpots" class="jackpots"></div>
+      <div class="source"><span id="status"></span><span id="source"></span></div>
+    </article>
+    <article class="card"><div class="sectionhead"><div><h2>Dò vé nhanh</h2><p>Nhập bộ số rồi đối chiếu với kỳ mới nhất.</p></div></div><div class="checkrow"><input id="ticket" placeholder="VD: 01 05 12 23 34 45"><button id="checkBtn" class="primary">Dò vé</button></div><div id="checkHint" class="hint"></div><div id="checkResult"></div></article>
+  </section>
+
+  <section id="view-history" class="view"><article class="card"><div class="sectionhead"><div><h2>Lịch sử kỳ quay</h2><p id="historySub">20 kỳ gần nhất</p></div><button id="reloadHistory">↻ Tải lại</button></div><div id="historyList" class="historyList"></div></article></section>
+
+  <section id="view-tickets" class="view">
+    <article class="card"><h2>Lưu vé để tự dò</h2><p class="muted">Web sẽ dò vé khi có kỳ mới. Có thể nhập Telegram Chat ID để nhận cảnh báo.</p><div class="formgrid"><label>Tên vé<input id="ticketLabel" placeholder="VD: Vé tối 13/8"></label><label>Game<select id="ticketGame"></select></label><label class="wide">Bộ số<input id="ticketNumbers" placeholder="01 05 12 23 34 45"></label><label class="wide">Telegram Chat ID (không bắt buộc)<input id="ticketChatId" placeholder="VD: 123456789"></label></div><div class="actions"><button id="saveTicket" class="primary">＋ Lưu vé</button><span id="saveStatus"></span></div></article>
+    <article class="card"><div class="sectionhead"><div><h2>Vé của tôi</h2><p>Tự lưu theo trình duyệt hiện tại.</p></div><button id="reloadTickets">↻ Tải lại</button></div><div id="ticketList" class="ticketList"></div></article>
+  </section>
+
+  <section id="view-telegram" class="view"><article class="card"><h2>Telegram báo khi vé có kết quả trùng</h2><div id="telegramState" class="notice"></div><div class="steps"><div><b>1</b><span>Tạo bot Telegram bằng BotFather và lấy token.</span></div><div><b>2</b><span>Trên Render thêm biến <code>TELEGRAM_BOT_TOKEN</code>. Web sẽ tự đăng ký webhook nếu có URL Render.</span></div><div><b>3</b><span>Nhắn <code>/start</code> cho bot. Bot trả về Chat ID.</span></div><div><b>4</b><span>Nhập Chat ID đó khi lưu vé. Khi kỳ mới về, server sẽ tự dò và gửi cảnh báo.</span></div></div><p class="warning">Thông báo chỉ là hỗ trợ đối chiếu. Hãy kiểm tra lại kết quả và cơ cấu giải chính thức trước khi lĩnh thưởng.</p></article></section>
+</main>
+<footer>Ứng dụng độc lập, không phải website chính thức của Vietlott • Nguồn dữ liệu công khai</footer>
+<script src="/socket.io/socket.io.js"></script><script src="/app.js"></script>
+</body></html>

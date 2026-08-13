@@ -1,27 +1,31 @@
-# Vietlott Realtime - Render
+# Vietlott Realtime V5
 
-Node.js + Express + Socket.IO. Tự cập nhật kết quả, phát realtime tới trình duyệt, hỗ trợ MongoDB lưu lịch sử.
+Node.js + Express + Socket.IO + MongoDB (tuỳ chọn) + Telegram webhook (tuỳ chọn).
 
-## Chạy local
-```bash
-npm install
-npm start
-```
-Mở http://localhost:10000
+## Tính năng
+- 5 game: Mega 6/45, Power 6/55, Lotto 5/35, Max3D Pro, Max 3D.
+- Giao diện bóng số, trang riêng theo game bằng `?game=...`.
+- Lịch sử 20–50 kỳ. Nên dùng MongoDB để lịch sử không mất khi Render sleep/redeploy.
+- Dò vé nhanh.
+- Lưu vé theo trình duyệt (`ownerKey` localStorage).
+- Tự dò vé khi crawler nhận kỳ mới.
+- Telegram webhook: bot trả Chat ID khi `/start`, server gửi cảnh báo khi vé có kết quả trùng.
 
-## Biến môi trường Render
-- `MONGODB_URI`: MongoDB Atlas URI (không bắt buộc; không có thì web vẫn chạy nhưng không lưu lịch sử).
-- `ADMIN_KEY`: khóa cho API admin.
-- `REFRESH_MS`: chu kỳ kiểm tra nguồn, mặc định 30000 ms, tối thiểu 15000 ms.
+## Render
+Build Command: `npm install`
+Start Command: `npm start`
 
-## API
-- `GET /api/results`
-- `GET /api/results/mega`
-- `GET /api/results/power`
-- `GET /api/results/lotto`
-- `GET /api/history/mega`
-- `POST /api/admin/refresh` với header `x-admin-key`
-- `GET /health`
+### Environment
+- `MONGODB_URI` — khuyến nghị, để lưu lịch sử và vé bền vững.
+- `TELEGRAM_BOT_TOKEN` — token từ BotFather, nếu muốn Telegram.
+- `PUBLIC_URL` — có thể để trống trên Render; app dùng `RENDER_EXTERNAL_URL` nếu có.
+- `ADMIN_KEY` — khoá cho API refresh admin.
+- `REFRESH_MS` — mặc định 30000, tối thiểu 15000 ms.
 
-## Deploy Render
-Push toàn bộ project lên GitHub, tạo Web Service trên Render, chọn repo, Build Command `npm install`, Start Command `npm start`.
+## Telegram
+1. Tạo bot với BotFather và đặt `TELEGRAM_BOT_TOKEN` trên Render.
+2. Redeploy.
+3. Nhắn `/start` cho bot để nhận Chat ID.
+4. Nhập Chat ID khi lưu vé trên web.
+
+> Cảnh báo dò vé chỉ hỗ trợ đối chiếu. Cần kiểm tra lại cơ cấu giải/kết quả chính thức trước khi lĩnh thưởng.
