@@ -43,13 +43,55 @@ function clean(s){ return String(s||'').replace(/\s+/g,' ').trim(); }
 function parseMinhChinh(html, key){
   const $ = cheerio.load(html);
   const cfg = games[key];
-
-  // Quan trọng: chỉ lấy KHỐI KẾT QUẢ ĐẦU TIÊN của đúng game.
-  // Bản cũ quét toàn bộ body nên dính ngày, kỳ, bảng thống kê và kết quả game khác.
   const body = clean($('body').text());
-  const title = key==='max3dpro' ? 'Kết quả Max3D Pro' :
-                key==='max3d' ? 'Kết quả Max 3D' :
-                key==='power' ? 'Kết quả Power 6/55' :
+
+  // Max3D / Max3D Pro dùng bảng kết quả riêng. Không cắt chuỗi theo tiêu đề nữa
+  // vì trang trực tiếp có nhiều menu/tiêu đề chứa chữ "Kết quả", làm parser cũ lệch khối.
+  if(key==='max3d' || key==='max3dpro'){
+    const pm = body.match(/Kết quả QSMT kỳ\s*#?(\d+)\s*ngày\s*(\d{1,2}\/\d{1,2}\/\d{4})(?:\s*-\s*Lúc\s*([0-9:]+))?/i);
+    if(!pm) throw new Error('Không đọc được kỳ/ngày Max3D');
+    const period=pm[1], date=pm[2], time=pm[3]||'';
+
+    let rows = null;
+    $('table').each((_,table)=>{
+      if(rows) return;
+      const found={};
+      $(table).find('tr').each((__,tr)=>{
+        const cells=$(tr).find('th,td');
+        if(cells.length<2) return;
+        const label=clean($(cells[0]).text()).toLowerCase();
+        const value=clean($(cells[1]).text());
+        if(/^đặc biệt$/.test(label)) found.db=value;
+        else if(/^giải nhất$/.test(label)) found.g1=value;
+        else if(/^giải nhì$/.test(label)) found.g2=value;
+        else if(/^giải ba$/.test(label)) found.g3=value;
+      });
+      if(found.db && found.g1 && found.g2 && found.g3) rows=found;
+    });
+
+    if(!rows) throw new Error('Không tìm thấy bảng kết quả Max3D');
+    const pick=(text,need)=>(String(text).match(/\b\d{3}\b/g)||[]).slice(0,need);
+    const db=pick(rows.db,2);
+    const g1=pick(rows.g1,4);
+    const g2=pick(rows.g2,6);
+    const g3=pick(rows.g3,8);
+
+    if(db.length!==2 || g1.length!==4 || g2.length!==6 || g3.length!==8){
+      throw new Error(`Không đọc đủ bộ số Max3D (ĐB ${db.length}/2, G1 ${g1.length}/4, G2 ${g2.length}/6, G3 ${g3.length}/8)`);
+    }
+
+    const numbers=[...db,...g1,...g2,...g3];
+    const prizes=[
+      {label:'Đặc biệt',numbers:db},
+      {label:'Giải nhất',numbers:g1},
+      {label:'Giải nhì',numbers:g2},
+      {label:'Giải ba',numbers:g3}
+    ];
+    return {game:key,name:cfg.name,period,date,time,numbers,prizes,jackpots:[],source:'MinhChinh',updatedAt:new Date().toISOString()};
+  }
+
+  // Mega / Power / Lotto: chỉ lấy khối kết quả đầu tiên của đúng game.
+  const title = key==='power' ? 'Kết quả Power 6/55' :
                 key==='lotto' ? 'Kết quả Lotto 5/35' : 'Kết quả Mega 6/45';
   const pos = body.indexOf(title);
   if(pos < 0) throw new Error('Không tìm thấy khối '+title);
@@ -61,56 +103,19 @@ function parseMinhChinh(html, key){
   if(!m) throw new Error('Không đọc được kỳ/ngày');
   const period=m[1], date=m[2], time=m[3]||'';
 
-  let numbers=[];
-  let prizes=[];
-  if(key==='mega' || key==='power' || key==='lotto'){
-    const tail=block.slice(m.index+m[0].length);
-    const count=key==='mega'?6:(key==='power'?7:6);
-    const max=key==='mega'?45:(key==='power'?55:35);
-    // Chỉ đọc dãy số ngay sau dòng kỳ/ngày, trước Jackpot/Độc Đắc.
-    const firstPart=tail.split(/Giá trị (?:Jackpot|Độc Đắc)/i)[0];
-    const candidates=(firstPart.match(/\b\d{1,2}\b/g)||[]).map(x=>x.padStart(2,'0'));
-    numbers=candidates.slice(0,count);
-    if(numbers.length!==count || numbers.some(x=>Number(x)<1 || Number(x)>max))
-      throw new Error('Bộ số không hợp lệ: '+numbers.join(' '));
-  } else {
-    // Max3D / Max3D Pro: đọc riêng từng hàng giải từ chính KHỐI KỲ QUAY hiện tại.
-    // Không quét toàn trang vì trang MinhChinh có nhiều kỳ và cả các con số SL/giá trị giải.
-    const tail=block.slice(m.index+m[0].length);
-
-    function rowNumbers(startLabel, endLabel, need){
-      const re=new RegExp(startLabel+'([\\s\\S]*?)'+endLabel,'i');
-      const hit=tail.match(re);
-      if(!hit) return [];
-      return (hit[1].match(/\b\d{3}\b/g)||[]).slice(0,need);
-    }
-
-    const db=rowNumbers('Đặc biệt','Giải nhất',2);
-    const g1=rowNumbers('Giải nhất','Giải nhì',4);
-    const g2=rowNumbers('Giải nhì','Giải ba',6);
-    // Sau giải ba, Max3D Pro có ĐB Phụ; Max 3D có mô tả giải tư.
-    let g3=rowNumbers('Giải ba','(?:ĐB Phụ|Giải tư|Trùng 2 bộ số|Thống kê tần suất|Dò kết quả|In vé dò)',8);
-    if(g3.length<8){
-      const hit=tail.match(/Giải ba([\s\S]*?)(?:ĐB Phụ|Giải tư|Trùng 2 bộ số|Thống kê tần suất|Dò kết quả|In vé dò|$)/i);
-      g3=hit ? (hit[1].match(/\b\d{3}\b/g)||[]).slice(0,8) : [];
-    }
-
-    numbers=[...db,...g1,...g2,...g3];
-    if(db.length!==2 || g1.length!==4 || g2.length!==6 || g3.length!==8){
-      throw new Error(`Không đọc đủ bộ số Max3D (ĐB ${db.length}/2, G1 ${g1.length}/4, G2 ${g2.length}/6, G3 ${g3.length}/8)`);
-    }
-    prizes=[
-      {label:'Đặc biệt',numbers:db},
-      {label:'Giải nhất',numbers:g1},
-      {label:'Giải nhì',numbers:g2},
-      {label:'Giải ba',numbers:g3}
-    ];
-  }
+  const tail=block.slice(m.index+m[0].length);
+  const count=key==='mega'?6:(key==='power'?7:6);
+  const max=key==='mega'?45:(key==='power'?55:35);
+  const firstPart=tail.split(/Giá trị (?:Jackpot|Độc Đắc)/i)[0];
+  const candidates=(firstPart.match(/\b\d{1,2}\b/g)||[]).map(x=>x.padStart(2,'0'));
+  const numbers=candidates.slice(0,count);
+  if(numbers.length!==count || numbers.some(x=>Number(x)<1 || Number(x)>max))
+    throw new Error('Bộ số không hợp lệ: '+numbers.join(' '));
 
   const jackpots=[];
   const jp=/Giá trị (Jackpot(?:\s*[12])?|Độc Đắc)\s*([\d.,]+)/gi;
   let jm; while((jm=jp.exec(block))!==null){ jackpots.push({label:jm[1],value:jm[2]}); if(jackpots.length>=2) break; }
-  return {game:key,name:cfg.name,period,date,time,numbers,prizes,jackpots,source:'MinhChinh',updatedAt:new Date().toISOString()};
+  return {game:key,name:cfg.name,period,date,time,numbers,prizes:[],jackpots,source:'MinhChinh',updatedAt:new Date().toISOString()};
 }
 
 async function fetchGame(key){
