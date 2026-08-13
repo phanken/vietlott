@@ -21,8 +21,8 @@ const games = {
   mega: { name:'Mega 6/45', color:'#e53935', urls:['https://www.minhchinh.com/xo-so-dien-toan-mega-645.html'] },
   power:{ name:'Power 6/55', color:'#f6a800', urls:['https://www.minhchinh.com/xo-so-dien-toan-power-655.html'] },
   lotto:{ name:'Lotto 5/35', color:'#18a957', urls:['https://www.minhchinh.com/xo-so-dien-toan.html'] },
-  max3dpro:{ name:'Max3D Pro', color:'#00a3c7', urls:['https://www.minhchinh.com/truc-tiep-xo-so-tu-chon-max3d-pro.html','https://www.minhchinh.com/xo-so-dien-toan-max3d-pro.html'] },
-  max3d:{ name:'Max 3D', color:'#1967d2', urls:['https://www.minhchinh.com/truc-tiep-xo-so-tu-chon-max-3d.html','https://www.minhchinh.com/xo-so-dien-toan-max-3d.html'] }
+  max3dpro:{ name:'Max3D Pro', color:'#00a3c7', urls:['https://www.minhchinh.com/xo-so-dien-toan-max3d-pro.html','https://www.minhchinh.com/truc-tiep-xo-so-tu-chon-max3d-pro.html'] },
+  max3d:{ name:'Max 3D', color:'#1967d2', urls:['https://www.minhchinh.com/xo-so-dien-toan-max-3d.html','https://www.minhchinh.com/truc-tiep-xo-so-tu-chon-max-3d.html'] }
 };
 
 let latest = {};
@@ -45,36 +45,54 @@ function parseMinhChinh(html, key){
   const cfg = games[key];
   const body = clean($('body').text());
 
-  // Max3D / Max3D Pro dùng bảng kết quả riêng. Không cắt chuỗi theo tiêu đề nữa
-  // vì trang trực tiếp có nhiều menu/tiêu đề chứa chữ "Kết quả", làm parser cũ lệch khối.
+  // Max3D / Max3D Pro: MinhChinh hiện không dùng một cấu trúc <table>
+  // cố định ở mọi trang. Parser V4 đọc theo nội dung từng hàng giải thay vì
+  // phụ thuộc thẻ table/td, nhờ vậy dùng được cả trang kết quả và trang trực tiếp.
   if(key==='max3d' || key==='max3dpro'){
     const pm = body.match(/Kết quả QSMT kỳ\s*#?(\d+)\s*ngày\s*(\d{1,2}\/\d{1,2}\/\d{4})(?:\s*-\s*Lúc\s*([0-9:]+))?/i);
     if(!pm) throw new Error('Không đọc được kỳ/ngày Max3D');
     const period=pm[1], date=pm[2], time=pm[3]||'';
 
-    let rows = null;
-    $('table').each((_,table)=>{
-      if(rows) return;
-      const found={};
-      $(table).find('tr').each((__,tr)=>{
-        const cells=$(tr).find('th,td');
-        if(cells.length<2) return;
-        const label=clean($(cells[0]).text()).toLowerCase();
-        const value=clean($(cells[1]).text());
-        if(/^đặc biệt$/.test(label)) found.db=value;
-        else if(/^giải nhất$/.test(label)) found.g1=value;
-        else if(/^giải nhì$/.test(label)) found.g2=value;
-        else if(/^giải ba$/.test(label)) found.g3=value;
-      });
-      if(found.db && found.g1 && found.g2 && found.g3) rows=found;
-    });
+    // Chỉ parse kỳ mới nhất, tránh lẫn các kỳ cũ phía dưới trang.
+    const p0 = body.indexOf(pm[0]);
+    let block = body.slice(p0 + pm[0].length);
+    const p1 = block.search(/Kết quả QSMT kỳ\s*#?\d+/i);
+    if(p1 >= 0) block = block.slice(0, p1);
+    block = block.slice(0, 5000);
 
-    if(!rows) throw new Error('Không tìm thấy bảng kết quả Max3D');
-    const pick=(text,need)=>(String(text).match(/\b\d{3}\b/g)||[]).slice(0,need);
-    const db=pick(rows.db,2);
-    const g1=pick(rows.g1,4);
-    const g2=pick(rows.g2,6);
-    const g3=pick(rows.g3,8);
+    const nums = txt => (String(txt).match(/\b\d{3}\b/g)||[]);
+    const takeImmediate = (label, need) => {
+      // Max3D Pro: "Đặc biệt 398 723 2 Tỷ ..."
+      const re = new RegExp(label + '\\s+((?:\\d{3}\\s+){' + (need-1) + '}\\d{3})(?=\\s|$)', 'i');
+      const m = block.match(re);
+      return m ? nums(m[1]).slice(0, need) : [];
+    };
+    const takeAfterCount = (label, need) => {
+      // Max 3D: "Giải nhất 350K: 83 853 988 718 792 Giải nhất ..."
+      // Bỏ số lượng người trúng ở cột trái (83), chỉ lấy cột Số Quay Thưởng.
+      const re = new RegExp(label + '[^:]{0,40}:\\s*\\d+\\s+((?:\\d{3}\\s+){' + (need-1) + '}\\d{3})(?=\\s|$)', 'i');
+      const m = block.match(re);
+      return m ? nums(m[1]).slice(0, need) : [];
+    };
+
+    let db=[], g1=[], g2=[], g3=[];
+    if(key==='max3dpro'){
+      db=takeImmediate('Đặc biệt',2);
+      g1=takeImmediate('Giải nhất',4);
+      g2=takeImmediate('Giải nhì',6);
+      g3=takeImmediate('Giải ba',8);
+    } else {
+      db=takeAfterCount('Đặc biệt',2);
+      g1=takeAfterCount('Giải nhất',4);
+      g2=takeAfterCount('Giải nhì',6);
+      g3=takeAfterCount('Giải ba',8);
+
+      // Một số phiên bản trang tối giản bỏ cột thống kê bên trái.
+      if(db.length!==2) db=takeImmediate('Đặc biệt',2);
+      if(g1.length!==4) g1=takeImmediate('Giải nhất',4);
+      if(g2.length!==6) g2=takeImmediate('Giải nhì',6);
+      if(g3.length!==8) g3=takeImmediate('Giải ba',8);
+    }
 
     if(db.length!==2 || g1.length!==4 || g2.length!==6 || g3.length!==8){
       throw new Error(`Không đọc đủ bộ số Max3D (ĐB ${db.length}/2, G1 ${g1.length}/4, G2 ${g2.length}/6, G3 ${g3.length}/8)`);
