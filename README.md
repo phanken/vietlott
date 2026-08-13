@@ -29,3 +29,8 @@ Start Command: `npm start`
 4. Nhập Chat ID khi lưu vé trên web.
 
 > Cảnh báo dò vé chỉ hỗ trợ đối chiếu. Cần kiểm tra lại cơ cấu giải/kết quả chính thức trước khi lĩnh thưởng.
+
+## Admin V6
+Mở `/admin`. Trên Render đặt biến môi trường `ADMIN_KEY` thành mật khẩu mạnh (không dùng mặc định 123456).
+Admin có thể: đổi URL nguồn từng game, xem trạng thái/lần crawl cuối, bật/tắt tự dò vé, crawl thủ công, xem/tắt/xóa toàn bộ vé, và gửi kết quả hiện tại qua Telegram.
+Nếu có MongoDB, cấu hình nguồn và trạng thái tự dò được lưu bền vững trong collection `settings`.

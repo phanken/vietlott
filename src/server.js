@@ -33,6 +33,25 @@ let mongo = null;
 let db = null;
 const historyMemory = {};
 const ticketsMemory = [];
+const lastCrawl = {};
+let runtimeSettings = { autoCheck:true, sources:Object.fromEntries(Object.entries(games).map(([k,v])=>[k,[...v.urls]])) };
+
+function isAdmin(req){ return String(req.headers['x-admin-key']||'') === ADMIN_KEY; }
+function requireAdmin(req,res,next){ if(!isAdmin(req)) return res.status(401).json({ok:false,error:'Sai ADMIN_KEY'}); next(); }
+
+async function loadSettings(){
+  if(!db) return;
+  const doc=await db.collection('settings').findOne({_id:'main'});
+  if(doc){
+    runtimeSettings.autoCheck = doc.autoCheck !== false;
+    if(doc.sources && typeof doc.sources==='object') runtimeSettings.sources={...runtimeSettings.sources,...doc.sources};
+  }
+  for(const [k,urls] of Object.entries(runtimeSettings.sources||{})) if(games[k] && Array.isArray(urls) && urls.length) games[k].urls=urls;
+}
+async function saveSettings(){
+  if(db) await db.collection('settings').updateOne({_id:'main'},{$set:{autoCheck:runtimeSettings.autoCheck,sources:runtimeSettings.sources,updatedAt:new Date().toISOString()}},{upsert:true});
+}
+
 
 async function initMongo(){
   if(!MONGODB_URI) return;
@@ -199,20 +218,72 @@ async function checkSavedTickets(result){
 }
 
 async function refresh(key, force=false){
+  const startedAt=new Date().toISOString();
   try{
     const r=await fetchGame(key); const old=latest[key]; latest[key]=r; await saveResult(r);
     const changed=!old || old.period!==r.period || JSON.stringify(old.numbers)!==JSON.stringify(r.numbers);
-    if(changed){ await checkSavedTickets(r); io.emit('result:update', r); }
+    lastCrawl[key]={ok:true,startedAt,finishedAt:new Date().toISOString(),period:r.period,date:r.date,url:r.url,source:r.source,error:''};
+    if(changed){ if(runtimeSettings.autoCheck) await checkSavedTickets(r); io.emit('result:update', r); }
     else if(force) io.emit('result:update',r);
     return r;
-  }catch(e){ latest[key]={...(latest[key]||{game:key,name:games[key].name}),error:e.message,updatedAt:new Date().toISOString()}; return latest[key]; }
+  }catch(e){
+    lastCrawl[key]={ok:false,startedAt,finishedAt:new Date().toISOString(),error:e.message,url:(games[key].urls||[])[0]||''};
+    latest[key]={...(latest[key]||{game:key,name:games[key].name}),error:e.message,updatedAt:new Date().toISOString()}; return latest[key];
+  }
 }
 async function refreshAll(force=false){ for(const key of Object.keys(games)) await refresh(key,force); }
 
 app.get('/api/config',(req,res)=>res.json({ok:true,games:Object.fromEntries(Object.entries(games).map(([k,v])=>[k,{name:v.name,color:v.color}])),telegramEnabled:!!TELEGRAM_BOT_TOKEN,database:!!db}));
 app.get('/api/results',(req,res)=>res.json({ok:true,results:latest}));
 app.get('/api/results/:game',async(req,res)=>{ const key=req.params.game; if(!games[key]) return res.status(404).json({ok:false,error:'Game không tồn tại'}); const r=await refresh(key,true); res.json({ok:!r.error,result:r}); });
-app.post('/api/admin/refresh',async(req,res)=>{ if(req.headers['x-admin-key']!==ADMIN_KEY) return res.status(401).json({ok:false,error:'Sai ADMIN_KEY'}); await refreshAll(true); res.json({ok:true,results:latest}); });
+app.post('/api/admin/login',requireAdmin,(req,res)=>res.json({ok:true}));
+app.get('/api/admin/status',requireAdmin,async(req,res)=>{
+  const ticketCount=db ? await db.collection('tickets').countDocuments({}) : ticketsMemory.length;
+  res.json({ok:true,autoCheck:runtimeSettings.autoCheck,sources:runtimeSettings.sources,lastCrawl,latest,database:!!db,telegram:!!TELEGRAM_BOT_TOKEN,ticketCount,refreshMs:REFRESH_MS});
+});
+app.post('/api/admin/refresh',requireAdmin,async(req,res)=>{
+  const game=String(req.body?.game||'all');
+  if(game==='all') await refreshAll(true); else if(games[game]) await refresh(game,true); else return res.status(400).json({ok:false,error:'Game không tồn tại'});
+  res.json({ok:true,results:latest,lastCrawl});
+});
+app.get('/api/admin/tickets',requireAdmin,async(req,res)=>{
+  const tickets=db ? await db.collection('tickets').find({}).sort({createdAt:-1}).limit(500).toArray() : [...ticketsMemory].sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+  res.json({ok:true,tickets});
+});
+app.patch('/api/admin/tickets/:id',requireAdmin,async(req,res)=>{
+  const patch={}; if(typeof req.body.active==='boolean') patch.active=req.body.active;
+  if(!Object.keys(patch).length) return res.status(400).json({ok:false,error:'Không có dữ liệu cần sửa'});
+  await patchTicket(req.params.id,patch); res.json({ok:true});
+});
+app.delete('/api/admin/tickets/:id',requireAdmin,async(req,res)=>{
+  if(db) await db.collection('tickets').deleteOne({ticketId:req.params.id}); else {const i=ticketsMemory.findIndex(t=>t.ticketId===req.params.id); if(i>=0) ticketsMemory.splice(i,1);} res.json({ok:true});
+});
+app.put('/api/admin/settings',requireAdmin,async(req,res)=>{
+  if(typeof req.body.autoCheck==='boolean') runtimeSettings.autoCheck=req.body.autoCheck;
+  if(req.body.sources && typeof req.body.sources==='object'){
+    for(const k of Object.keys(games)){
+      const val=req.body.sources[k];
+      if(val!==undefined){
+        const urls=(Array.isArray(val)?val:[val]).map(x=>String(x||'').trim()).filter(x=>/^https?:\/\//i.test(x));
+        if(!urls.length) return res.status(400).json({ok:false,error:`Nguồn ${games[k].name} không hợp lệ`});
+        runtimeSettings.sources[k]=urls; games[k].urls=urls;
+      }
+    }
+  }
+  await saveSettings(); res.json({ok:true,settings:runtimeSettings});
+});
+app.post('/api/admin/send-result',requireAdmin,async(req,res)=>{
+  if(!TELEGRAM_BOT_TOKEN) return res.status(400).json({ok:false,error:'Chưa có TELEGRAM_BOT_TOKEN'});
+  const game=String(req.body.game||''); const r=latest[game]; if(!games[game]||!r?.numbers) return res.status(400).json({ok:false,error:'Chưa có kết quả game này'});
+  const nums=(r.numbers||[]).join(' - '); const text=`🎯 ${games[game].name}\nKỳ #${r.period||'?'} - ${r.date||''} ${r.time||''}\n${nums}${PUBLIC_URL?`\n\n${PUBLIC_URL}/?game=${game}`:''}`;
+  let ids=[]; const chatId=String(req.body.chatId||'').trim();
+  if(chatId && chatId!=='all') ids=[chatId]; else {
+    const tickets=db ? await db.collection('tickets').find({telegramChatId:{$nin:['',null]}}).project({telegramChatId:1}).toArray() : ticketsMemory.filter(t=>t.telegramChatId);
+    ids=[...new Set(tickets.map(t=>String(t.telegramChatId)).filter(Boolean))];
+  }
+  let sent=0; for(const id of ids) if(await sendTelegram(id,text)) sent++;
+  res.json({ok:true,sent,total:ids.length});
+});
 app.get('/api/history/:game',async(req,res)=>{
   if(!games[req.params.game]) return res.status(404).json({ok:false,error:'Game không tồn tại'});
   const limit=Math.min(50,Math.max(1,Number(req.query.limit||20)));
@@ -258,6 +329,7 @@ app.post('/telegram/webhook',async(req,res)=>{
   if(/^\/start/i.test(text) || /^\/id/i.test(text)) await sendTelegram(msg.chat.id,`✅ Đã kết nối bot.\nChat ID của bạn: ${msg.chat.id}\n\nNhập Chat ID này khi lưu vé trên web để nhận thông báo.`);
 });
 app.get('/health',(req,res)=>res.json({ok:true,time:new Date().toISOString(),mongo:!!db,telegram:!!TELEGRAM_BOT_TOKEN}));
+app.get('/admin',(req,res)=>res.sendFile(path.join(__dirname,'..','public','admin.html')));
 app.get('*',(req,res)=>res.sendFile(path.join(__dirname,'..','public','index.html')));
 io.on('connection', socket => socket.emit('init',{results:latest}));
 
@@ -267,4 +339,4 @@ async function setupTelegramWebhook(){
   catch(e){ console.error('[Telegram webhook]',e.response?.data?.description||e.message); }
 }
 
-(async()=>{ await initMongo(); await setupTelegramWebhook(); await refreshAll(); setInterval(()=>refreshAll(),REFRESH_MS).unref(); server.listen(PORT,()=>console.log('Server listen on port',PORT)); })();
+(async()=>{ await initMongo(); await loadSettings(); await setupTelegramWebhook(); await refreshAll(); setInterval(()=>refreshAll(),REFRESH_MS).unref(); server.listen(PORT,()=>console.log('Server listen on port',PORT)); })();

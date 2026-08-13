@@ -1,0 +1,12 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vietlott Admin</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/admin.css"></head><body>
+<header class="adminTop"><div><b>Vietlott Admin</b><span>Quản trị nguồn, vé và crawl</span></div><a href="/">← Trang chủ</a></header>
+<main class="adminWrap">
+<section id="loginBox" class="adminCard loginCard"><h1>Đăng nhập Admin</h1><p>Nhập giá trị biến <code>ADMIN_KEY</code> trên Render.</p><input id="adminKey" type="password" placeholder="ADMIN_KEY"><button id="loginBtn" class="primary">Đăng nhập</button><div id="loginMsg"></div></section>
+<div id="panel" hidden>
+<section class="stats" id="stats"></section>
+<section class="adminCard"><div class="adminHead"><div><h2>Điều khiển</h2><p>Bật/tắt tự dò và chạy crawl thủ công.</p></div><button id="logoutBtn">Đăng xuất</button></div><div class="controls"><label class="switchrow"><input id="autoCheck" type="checkbox"> <span>Tự dò vé khi có kỳ mới</span></label><button id="saveAuto" class="primary">Lưu</button><button id="refreshAll">Crawl tất cả</button></div><div id="controlMsg"></div></section>
+<section class="adminCard"><div class="adminHead"><div><h2>Nguồn kết quả</h2><p>Có thể đổi URL từng game mà không sửa code.</p></div><button id="saveSources" class="primary">Lưu nguồn</button></div><div id="sources" class="sourceGrid"></div><div id="sourceMsg"></div></section>
+<section class="adminCard"><div class="adminHead"><div><h2>Trạng thái crawl</h2><p>Lần lấy dữ liệu gần nhất của từng game.</p></div><button id="reloadStatus">Tải lại</button></div><div id="crawlList"></div></section>
+<section class="adminCard"><div class="adminHead"><div><h2>Vé đã lưu</h2><p>Admin nhìn thấy toàn bộ vé trên hệ thống.</p></div><button id="reloadTickets">Tải lại</button></div><div id="adminTickets"></div></section>
+<section class="adminCard"><h2>Gửi kết quả thủ công qua Telegram</h2><div class="sendGrid"><label>Game<select id="sendGame"></select></label><label>Chat ID<input id="sendChat" placeholder="Để trống = gửi tới tất cả Chat ID đã lưu"></label><button id="sendResult" class="primary">Gửi kết quả</button></div><div id="sendMsg"></div></section>
+</div></main><script src="/admin.js"></script></body></html>
