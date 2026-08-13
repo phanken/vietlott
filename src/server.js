@@ -18,11 +18,11 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const games = {
-  mega: { name:'Mega 6/45', color:'#e53935', urls:['https://www.minhchinh.com/truc-tiep-xo-so-tu-chon-mega-645.html'] },
-  power:{ name:'Power 6/55', color:'#f6a800', urls:['https://www.minhchinh.com/truc-tiep-xo-so-tu-chon-power-655.html'] },
-  lotto:{ name:'Lotto 5/35', color:'#18a957', urls:['https://www.minhchinh.com/truc-tiep-xo-so-lotto-535.html','https://www.minhchinh.com/xo-so-vietlott-lotto-535.html'] },
-  max3dpro:{ name:'Max3D Pro', color:'#00a3c7', urls:['https://www.minhchinh.com/truc-tiep-xo-so-max3d-pro.html'] },
-  max3d:{ name:'Max 3D', color:'#1967d2', urls:['https://www.minhchinh.com/truc-tiep-xo-so-max-3d.html'] }
+  mega: { name:'Mega 6/45', color:'#e53935', urls:['https://www.minhchinh.com/xo-so-dien-toan-mega-645.html'] },
+  power:{ name:'Power 6/55', color:'#f6a800', urls:['https://www.minhchinh.com/xo-so-dien-toan-power-655.html'] },
+  lotto:{ name:'Lotto 5/35', color:'#18a957', urls:['https://www.minhchinh.com/xo-so-dien-toan.html'] },
+  max3dpro:{ name:'Max3D Pro', color:'#00a3c7', urls:['https://www.minhchinh.com/xo-so-dien-toan-max3d-pro.html'] },
+  max3d:{ name:'Max 3D', color:'#1967d2', urls:['https://www.minhchinh.com/xo-so-dien-toan-max-3d.html'] }
 };
 
 let latest = {};
@@ -40,39 +40,68 @@ async function initMongo(){
 }
 
 function clean(s){ return String(s||'').replace(/\s+/g,' ').trim(); }
-function extractNumbers(text, game){
-  const all = (text.match(/\b\d{1,2}\b/g)||[]).map(n=>n.padStart(2,'0'));
-  const max = game==='mega'?45:game==='power'?55:game==='lotto'?35:99;
-  const wanted = game==='lotto'?6:(game==='mega'?6:(game==='power'?7:0));
-  if(!wanted) return [];
-  // Find a plausible consecutive window. For lotto, result commonly includes 5 main + 1 special.
-  for(let i=0;i<=all.length-wanted;i++){
-    const w=all.slice(i,i+wanted); const vals=w.map(Number);
-    if(vals.every(v=>v>=1&&v<=max)) return w;
-  }
-  return [];
-}
-
 function parseMinhChinh(html, key){
   const $ = cheerio.load(html);
-  const body = clean($('body').text());
   const cfg = games[key];
-  let period = '';
-  let date = '';
-  const m = body.match(/Kết quả QSMT kỳ\s*#?(\d+)\s*ngày\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
-  if(m){ period=m[1]; date=m[2]; }
+
+  // Quan trọng: chỉ lấy KHỐI KẾT QUẢ ĐẦU TIÊN của đúng game.
+  // Bản cũ quét toàn bộ body nên dính ngày, kỳ, bảng thống kê và kết quả game khác.
+  const body = clean($('body').text());
+  const title = key==='max3dpro' ? 'Kết quả Max3D Pro' :
+                key==='max3d' ? 'Kết quả Max 3D' :
+                key==='power' ? 'Kết quả Power 6/55' :
+                key==='lotto' ? 'Kết quả Lotto 5/35' : 'Kết quả Mega 6/45';
+  const pos = body.indexOf(title);
+  if(pos < 0) throw new Error('Không tìm thấy khối '+title);
+  const after = body.slice(pos + title.length);
+  const nextResult = after.search(/Kết quả (?:Mega 6\/45|Power 6\/55|Lotto 5\/35|Max3D Pro|Max 3D)/);
+  const block = nextResult >= 0 ? after.slice(0,nextResult) : after.slice(0,3500);
+
+  const m = block.match(/Kết quả QSMT kỳ\s*#?(\d+)\s*ngày\s*(\d{1,2}\/\d{1,2}\/\d{4})(?:\s*-\s*Lúc\s*([0-9:]+))?/i);
+  if(!m) throw new Error('Không đọc được kỳ/ngày');
+  const period=m[1], date=m[2], time=m[3]||'';
+
   let numbers=[];
-  // Prefer visible number-like elements near the result heading.
-  const heading = $('*:contains("Kết quả QSMT kỳ")').last();
-  if(heading.length){
-    const near = clean(heading.parent().text());
-    numbers = extractNumbers(near, key);
+  let prizes=[];
+  if(key==='mega' || key==='power' || key==='lotto'){
+    const tail=block.slice(m.index+m[0].length);
+    const count=key==='mega'?6:(key==='power'?7:6);
+    const max=key==='mega'?45:(key==='power'?55:35);
+    // Chỉ đọc dãy số ngay sau dòng kỳ/ngày, trước Jackpot/Độc Đắc.
+    const firstPart=tail.split(/Giá trị (?:Jackpot|Độc Đắc)/i)[0];
+    const candidates=(firstPart.match(/\b\d{1,2}\b/g)||[]).map(x=>x.padStart(2,'0'));
+    numbers=candidates.slice(0,count);
+    if(numbers.length!==count || numbers.some(x=>Number(x)<1 || Number(x)>max))
+      throw new Error('Bộ số không hợp lệ: '+numbers.join(' '));
+  } else {
+    // Max3D / Max3D Pro: 20 bộ 3 chữ số = 2 ĐB + 4 nhất + 6 nhì + 8 ba.
+    const tail=block.slice(m.index+m[0].length);
+    const stop=tail.search(/(?:Thống kê tần suất|Dò kết quả|In vé dò)/i);
+    const tablePart=stop>=0?tail.slice(0,stop):tail;
+    const triples=(tablePart.match(/\b\d{3}\b/g)||[]);
+    // Loại số tiền/SL bằng cách ưu tiên DOM các hàng giải nếu có.
+    const wanted=[];
+    $('tr').each((_,tr)=>{
+      const txt=clean($(tr).text());
+      if(!/^(Đặc biệt|Giải nhất|Giải nhì|Giải ba)\b/i.test(txt)) return;
+      const t=(txt.match(/\b\d{3}\b/g)||[]);
+      const need=/^Đặc biệt/i.test(txt)?2:/^Giải nhất/i.test(txt)?4:/^Giải nhì/i.test(txt)?6:8;
+      wanted.push(...t.slice(0,need));
+    });
+    numbers=(wanted.length>=20?wanted.slice(0,20):triples.slice(0,20));
+    if(numbers.length<20) throw new Error('Không đọc đủ 20 bộ số Max3D');
+    prizes=[
+      {label:'Đặc biệt',numbers:numbers.slice(0,2)},
+      {label:'Giải nhất',numbers:numbers.slice(2,6)},
+      {label:'Giải nhì',numbers:numbers.slice(6,12)},
+      {label:'Giải ba',numbers:numbers.slice(12,20)}
+    ];
   }
-  if(!numbers.length) numbers = extractNumbers(body, key);
+
   const jackpots=[];
-  const jackpotRegex = /Giá trị Jackpot(?:\s*([12]))?\s*([\d.,]+)/gi;
-  let jm; while((jm=jackpotRegex.exec(body))!==null){ jackpots.push({label:'Jackpot'+(jm[1]?' '+jm[1]:''), value:jm[2]}); if(jackpots.length>=2) break; }
-  return {game:key,name:cfg.name,period,date,numbers,jackpots,source:'MinhChinh',updatedAt:new Date().toISOString()};
+  const jp=/Giá trị (Jackpot(?:\s*[12])?|Độc Đắc)\s*([\d.,]+)/gi;
+  let jm; while((jm=jp.exec(block))!==null){ jackpots.push({label:jm[1],value:jm[2]}); if(jackpots.length>=2) break; }
+  return {game:key,name:cfg.name,period,date,time,numbers,prizes,jackpots,source:'MinhChinh',updatedAt:new Date().toISOString()};
 }
 
 async function fetchGame(key){
