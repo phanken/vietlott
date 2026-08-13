@@ -21,8 +21,8 @@ const games = {
   mega: { name:'Mega 6/45', color:'#e53935', urls:['https://www.minhchinh.com/xo-so-dien-toan-mega-645.html'] },
   power:{ name:'Power 6/55', color:'#f6a800', urls:['https://www.minhchinh.com/xo-so-dien-toan-power-655.html'] },
   lotto:{ name:'Lotto 5/35', color:'#18a957', urls:['https://www.minhchinh.com/xo-so-dien-toan.html'] },
-  max3dpro:{ name:'Max3D Pro', color:'#00a3c7', urls:['https://www.minhchinh.com/xo-so-dien-toan-max3d-pro.html'] },
-  max3d:{ name:'Max 3D', color:'#1967d2', urls:['https://www.minhchinh.com/xo-so-dien-toan-max-3d.html'] }
+  max3dpro:{ name:'Max3D Pro', color:'#00a3c7', urls:['https://www.minhchinh.com/truc-tiep-xo-so-tu-chon-max3d-pro.html','https://www.minhchinh.com/xo-so-dien-toan-max3d-pro.html'] },
+  max3d:{ name:'Max 3D', color:'#1967d2', urls:['https://www.minhchinh.com/truc-tiep-xo-so-tu-chon-max-3d.html','https://www.minhchinh.com/xo-so-dien-toan-max-3d.html'] }
 };
 
 let latest = {};
@@ -74,27 +74,36 @@ function parseMinhChinh(html, key){
     if(numbers.length!==count || numbers.some(x=>Number(x)<1 || Number(x)>max))
       throw new Error('Bộ số không hợp lệ: '+numbers.join(' '));
   } else {
-    // Max3D / Max3D Pro: 20 bộ 3 chữ số = 2 ĐB + 4 nhất + 6 nhì + 8 ba.
+    // Max3D / Max3D Pro: đọc riêng từng hàng giải từ chính KHỐI KỲ QUAY hiện tại.
+    // Không quét toàn trang vì trang MinhChinh có nhiều kỳ và cả các con số SL/giá trị giải.
     const tail=block.slice(m.index+m[0].length);
-    const stop=tail.search(/(?:Thống kê tần suất|Dò kết quả|In vé dò)/i);
-    const tablePart=stop>=0?tail.slice(0,stop):tail;
-    const triples=(tablePart.match(/\b\d{3}\b/g)||[]);
-    // Loại số tiền/SL bằng cách ưu tiên DOM các hàng giải nếu có.
-    const wanted=[];
-    $('tr').each((_,tr)=>{
-      const txt=clean($(tr).text());
-      if(!/^(Đặc biệt|Giải nhất|Giải nhì|Giải ba)\b/i.test(txt)) return;
-      const t=(txt.match(/\b\d{3}\b/g)||[]);
-      const need=/^Đặc biệt/i.test(txt)?2:/^Giải nhất/i.test(txt)?4:/^Giải nhì/i.test(txt)?6:8;
-      wanted.push(...t.slice(0,need));
-    });
-    numbers=(wanted.length>=20?wanted.slice(0,20):triples.slice(0,20));
-    if(numbers.length<20) throw new Error('Không đọc đủ 20 bộ số Max3D');
+
+    function rowNumbers(startLabel, endLabel, need){
+      const re=new RegExp(startLabel+'([\\s\\S]*?)'+endLabel,'i');
+      const hit=tail.match(re);
+      if(!hit) return [];
+      return (hit[1].match(/\b\d{3}\b/g)||[]).slice(0,need);
+    }
+
+    const db=rowNumbers('Đặc biệt','Giải nhất',2);
+    const g1=rowNumbers('Giải nhất','Giải nhì',4);
+    const g2=rowNumbers('Giải nhì','Giải ba',6);
+    // Sau giải ba, Max3D Pro có ĐB Phụ; Max 3D có mô tả giải tư.
+    let g3=rowNumbers('Giải ba','(?:ĐB Phụ|Giải tư|Trùng 2 bộ số|Thống kê tần suất|Dò kết quả|In vé dò)',8);
+    if(g3.length<8){
+      const hit=tail.match(/Giải ba([\s\S]*?)(?:ĐB Phụ|Giải tư|Trùng 2 bộ số|Thống kê tần suất|Dò kết quả|In vé dò|$)/i);
+      g3=hit ? (hit[1].match(/\b\d{3}\b/g)||[]).slice(0,8) : [];
+    }
+
+    numbers=[...db,...g1,...g2,...g3];
+    if(db.length!==2 || g1.length!==4 || g2.length!==6 || g3.length!==8){
+      throw new Error(`Không đọc đủ bộ số Max3D (ĐB ${db.length}/2, G1 ${g1.length}/4, G2 ${g2.length}/6, G3 ${g3.length}/8)`);
+    }
     prizes=[
-      {label:'Đặc biệt',numbers:numbers.slice(0,2)},
-      {label:'Giải nhất',numbers:numbers.slice(2,6)},
-      {label:'Giải nhì',numbers:numbers.slice(6,12)},
-      {label:'Giải ba',numbers:numbers.slice(12,20)}
+      {label:'Đặc biệt',numbers:db},
+      {label:'Giải nhất',numbers:g1},
+      {label:'Giải nhì',numbers:g2},
+      {label:'Giải ba',numbers:g3}
     ];
   }
 
